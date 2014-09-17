@@ -11,6 +11,8 @@ import java.util.AbstractMap.SimpleEntry;
 import java.util.Map.Entry;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 
@@ -25,38 +27,27 @@ import java.util.stream.Collectors;
  * @author Robert C Duvall
  * @author Christopher La Pilla
  */
-public class TagCloudFunctional {
+public class TagCloudFunctionalMore {
     // some basic defaults
-    private static final int DEFAULT_NUM_GROUPS = 20;
-    private static final int DEFAULT_MIN_FONT = 6;
-    private static final int DEFAULT_INCREMENT = 4;
+	private static final int DEFAULT_NUM_GROUPS = 20;
+	private static final int DEFAULT_MIN_FONT = 6;
+	private static final int DEFAULT_INCREMENT = 4;
     private static final String DEFAULT_IGNORE_FILE = "common.txt";
-    // key regular expressions
+	// key regular expressions
     private static final String PUNCTUATION = "[\\d\\p{Punct}]+";
-    private static final String END_OF_FILE = "\\Z";
+	private static final String END_OF_FILE = "\\Z";
     private static final String WHITESPACE = "\\s";
 
-    // set of common words to ignore when displaying tag cloud
-    private Set<String> myCommonWords;
     // words and the number of times each appears in the file
-    private List<Entry<String, Integer>> myTagWords;
+    private List<Map.Entry<String, Integer>> myTagWords;
 
 
     /**
      * Constructs an empty TagCloud.
      */
-    public TagCloudFunctional (Scanner ignoreWords) {
-        // this value should never be null
+    public TagCloudFunctionalMore () {
+    	// this value should never be null
         myTagWords = new ArrayList<>();
-        // create list of words that should not be included in final word counts
-        myCommonWords = new HashSet<>(readWords(ignoreWords));
-    }
-
-    /**
-     * Create a word cloud from the given input.
-     */
-    public void makeCloud (Scanner input, int numWordsToKeep, int groupSize) {
-        myTagWords = topWords(countWords(input), numWordsToKeep, groupSize);
     }
 
     /**
@@ -65,33 +56,31 @@ public class TagCloudFunctional {
      * Each word read is converted to lower case with leading and trailing 
      * punctuation removed before it is counted.
      */
-    private List<Entry<String, Integer>> countWords (Scanner input) {
+    public TagCloudFunctionalMore countWords (Scanner input, Predicate<String> select) {
         final Map<String, Integer> wordCounts = new HashMap<>();
-        readWords(input).forEach(w -> {
-            if (isTaggable(w)) {
-                wordCounts.put(w, wordCounts.getOrDefault(w, 0) + 1);
-            }
+        readWords(input, TagCloudFunctionalMore::sanitize, select).stream().forEach((w) -> {
+            wordCounts.put(w, wordCounts.getOrDefault(w, 0) + 1);
         });
-        return new ArrayList<Entry<String, Integer>>(wordCounts.entrySet());
+        myTagWords.addAll(wordCounts.entrySet());
+        return this;
     }
 
     /**
      * Sorts words alphabetically, keeping only those that appeared most often.
      */
-    private List<Entry<String, Integer>> topWords (List<Entry<String, Integer>> tagWords,
-                                                   int numWordsToKeep,
-                                                   int groupSize) {
+    public TagCloudFunctionalMore topWords (int numWordsToKeep, int groupSize) {
         // sort from most frequent to least
-        tagWords.sort(Comparator.comparing(Entry<String, Integer>::getValue).reversed());
+    	myTagWords.sort(Comparator.comparing(Entry<String, Integer>::getValue).reversed());
         // keep only the top ones
-        tagWords.subList(numWordsToKeep, tagWords.size()).clear();
+    	myTagWords.subList(numWordsToKeep, myTagWords.size()).clear();
+System.out.println(myTagWords);
         // convert frequencies into groups
-        tagWords = tagWords.stream()
-                           .map(w -> new SimpleEntry<String, Integer>(w.getKey(), w.getValue() / groupSize))
-                           .collect(Collectors.toList());
+        myTagWords = myTagWords.stream()
+                               .map(w -> new SimpleEntry<String, Integer>(w.getKey(), w.getValue() / groupSize))
+                               .collect(Collectors.toList());
         // sort alphabetically
-        tagWords.sort(Comparator.comparing(Entry<String, Integer>::getKey));
-        return tagWords;
+		myTagWords.sort(Comparator.comparing(Entry<String, Integer>::getKey));
+        return this;
     }
 
     /**
@@ -102,12 +91,19 @@ public class TagCloudFunctional {
                                  .map(HTMLPage::formatWord)
                                  .collect(Collectors.joining(" "));
         return HTMLPage.startPage(DEFAULT_NUM_GROUPS, DEFAULT_MIN_FONT, DEFAULT_INCREMENT) + 
-               words + HTMLPage.endPage();
+        	   words + HTMLPage.endPage();
     }
 
-    // Return true if the given word should be tagged
-    private boolean isTaggable (String word) {
-        return word.length() > 0 && ! myCommonWords.contains(word);
+    // Returns a function that returns true if the given word should be tagged
+    private static Predicate<String> isTaggable (Scanner ignoreWords) {
+        // set of common words to ignore when displaying tag cloud
+        final Set<String> commonWords = new HashSet<>(readWords(ignoreWords, TagCloudFunctionalMore::sanitize, x -> true));
+        return new Predicate<String>() {
+			@Override
+			public boolean test (String word) {
+		        return word.length() > 0 && ! commonWords.contains(word);
+			}
+        };
     }
 
     // Remove the leading and trailing punctuation from the given word
@@ -116,21 +112,24 @@ public class TagCloudFunctional {
     }
 
     // Remove the leading and trailing punctuation from the given word
-    private List<String> readWords (Scanner input) {
-        List<String> words = Arrays.asList(input.useDelimiter(END_OF_FILE).next().split(WHITESPACE));
+	private static List<String> readWords (Scanner input, UnaryOperator<String> xform, Predicate<String> select) {
+		List<String> words = Arrays.asList(input.useDelimiter(END_OF_FILE).next().split(WHITESPACE));
         return words.stream()
-                    .map(TagCloudFunctional::sanitize)
-                    .collect(Collectors.toList());
-    }
+        		.map(xform)
+        		.filter(select)
+        		.collect(Collectors.toList());
+	}
 
 
-    public static void main (String[] args) {
+	public static void main (String[] args) {
         if (args.length == 0) {
             System.out.println("Usage: #words file(s)");
         }
         try {
-            TagCloudFunctional cloud = new TagCloudFunctional(new Scanner(TagCloud.class.getResourceAsStream(DEFAULT_IGNORE_FILE)));
-            cloud.makeCloud(new Scanner(new File(args[1])), Integer.parseInt(args[0]), DEFAULT_NUM_GROUPS);
+        	TagCloudFunctionalMore cloud = new TagCloudFunctionalMore()
+                .countWords(new Scanner(new File(args[1])),
+                		    isTaggable(new Scanner(TagCloud.class.getResourceAsStream(DEFAULT_IGNORE_FILE))))
+                .topWords(Integer.parseInt(args[0]), DEFAULT_NUM_GROUPS);
             System.out.println(cloud);
         }
         catch (FileNotFoundException e) {
